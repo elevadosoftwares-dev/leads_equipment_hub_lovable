@@ -1,0 +1,9 @@
+- Stack: TanStack Start (React + Node server functions) with SQL Server via `mssql`. Server-only code lives in `src/server/*.server.ts` and is loaded with `await import(...)` inside server functions; schema changes go in `database/schema.sql` and must stay idempotent.
+- Store data (equipment, calibrations, issuances) and master data (categories, subcategories, departments, technicians, sets, files) are read via the single `useStore()` query in src/lib/store.ts (backed by the `getStore` server function) and invalidated with key ["store"] — small inventory, one cache key keeps every screen and dropdown in sync.
+- Files (photos, certificates, attachments) are stored in `dbo.files` and served by `/api/files/$id` to signed-in staff only; records keep the file id in their `*_path` column. Unreferenced files are purged by `purgeOrphanFiles()`.
+- All pages are gated by AppShell sign-in; server functions use `requireAuth`, so any signed-in staff has full access.
+- Expired calibration is the source of quarantine: `effectiveCondition()` computes it and `useStore()` persists it (via `quarantineExpired`) — one rule, no separate job.
+- Equipment delete and staff management require `requireAdmin`; the role is `dbo.users.role` ('admin' | 'user') and at least one admin must remain.
+- Foreign keys to master data use NO ACTION (SQL Server forbids multiple cascade paths); `deleteMaster` clears references explicitly in a transaction.
+- Equipment belongs to at most one set via `equipment.set_id` — sets never duplicate equipment rows.
+- Excel export runs in the browser via lazily imported `xlsx` (src/lib/excel.ts) — keeps it out of SSR.
