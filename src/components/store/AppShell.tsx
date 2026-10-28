@@ -1,14 +1,29 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LayoutDashboard, Boxes, Gauge, ClipboardList, Search, LogOut, FileSpreadsheet, Tags, Tag, Building2, HardHat, Layers, ShieldCheck } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  LayoutDashboard,
+  Boxes,
+  Gauge,
+  ClipboardList,
+  Search,
+  LogOut,
+  FileSpreadsheet,
+  Tags,
+  Tag,
+  Building2,
+  HardHat,
+  Layers,
+  ShieldCheck,
+} from "lucide-react";
 import { toast } from "sonner";
-import { bootstrapFirstAdmin, isSetupRequired, signIn, signOut } from "@/lib/auth.functions";
-import { sessionQueryKey, useSession } from "@/lib/session";
+import { signIn, signOut, signUp } from "@/lib/auth.functions";
+import { useSession } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "./ui";
 import logo from "@/assets/leads-logo.png";
+
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { to: "/equipment", label: "Equipment", icon: Boxes },
@@ -30,78 +45,88 @@ const masters = [
 function Logo() {
   return (
     <div className="rounded-xl bg-card px-3 py-2 text-center">
-      <img src={logo} alt="Leads" width={600} height={286} className="mx-auto h-14 w-auto object-contain" />
-      <div className="mt-1 text-xs font-bold tracking-wide text-primary">Store Management System</div>
+      <img
+        src={logo}
+        alt="Leads"
+        width={600}
+        height={286}
+        className="mx-auto h-14 w-auto object-contain"
+      />
+      <div className="mt-1 text-xs font-bold tracking-wide text-primary">
+        Store Management System
+      </div>
     </div>
   );
 }
 
 function Login() {
-  const qc = useQueryClient();
-  const { data: setup } = useQuery({ queryKey: ["setup-required"], queryFn: () => isSetupRequired() });
-  const [fullName, setFullName] = useState("");
+  const [mode, setMode] = useState<"in" | "up">("in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const firstRun = setup?.setupRequired === true;
+  const [busy, setBusy] = useState(false);
+  const qc = useQueryClient();
 
-  const submit = useMutation({
-    mutationFn: async () => {
-      if (firstRun) await bootstrapFirstAdmin({ data: { email, password, fullName } });
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      if (mode === "up") await signUp({ data: { email, password } });
       await signIn({ data: { email, password } });
-    },
-    onSuccess: () => qc.invalidateQueries(),
-    onError: (e: Error) => toast.error(e.message),
-  });
+      // Refetch the session (and everything else) as the new user.
+      await qc.resetQueries();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="gradient-nav flex min-h-screen items-center justify-center px-4">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit.mutate();
-        }}
-        className="panel w-full max-w-sm space-y-5 p-8"
-      >
+      <form onSubmit={submit} className="panel w-full max-w-sm space-y-5 p-8">
         <Logo />
         <div>
           <h1 className="text-xl font-bold">Store Management System</h1>
-          <p className="text-sm text-muted-foreground">{firstRun ? "Create the first administrator account" : "Sign in to continue"}</p>
+          <p className="text-sm text-muted-foreground">
+            {mode === "in" ? "Sign in to continue" : "Create a staff account"}
+          </p>
         </div>
-        {firstRun && (
-          <Field label="Full Name">
-            <Input required value={fullName} onChange={(e) => setFullName(e.target.value)} />
-          </Field>
-        )}
         <Field label="Email">
           <Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
         </Field>
         <Field label="Password">
-          <Input type="password" required minLength={firstRun ? 8 : 1} value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Input
+            type="password"
+            required
+            minLength={6}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
         </Field>
-        <Button type="submit" className="w-full" disabled={submit.isPending}>
-          {submit.isPending ? "Please wait…" : firstRun ? "Create account" : "Sign in"}
+        <Button type="submit" className="w-full" disabled={busy}>
+          {mode === "in" ? "Sign in" : "Create account"}
         </Button>
-        {!firstRun && <p className="text-center text-xs text-muted-foreground">Staff accounts are created by a Master Admin.</p>}
+        <button
+          type="button"
+          className="w-full text-sm text-primary"
+          onClick={() => setMode(mode === "in" ? "up" : "in")}
+        >
+          {mode === "in" ? "No account? Create one" : "Have an account? Sign in"}
+        </button>
       </form>
     </div>
   );
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const { data: session, isLoading } = useSession();
   const qc = useQueryClient();
-  const { data: session, isPending } = useSession();
 
-  async function logOut() {
-    await signOut();
-    qc.setQueryData(sessionQueryKey, { userId: null, email: null, fullName: "", role: null });
-    qc.removeQueries({ predicate: (q) => q.queryKey[0] !== sessionQueryKey[0] });
-  }
+  if (isLoading) return <div className="min-h-screen bg-background" />;
+  if (!session) return <Login />;
 
-  if (isPending) return <div className="min-h-screen bg-background" />;
-  if (!session?.userId) return <Login />;
-
-  const email = session.email ?? "";
-  const initials = (session.fullName || email).slice(0, 2).toUpperCase();
+  const email = session.email;
+  const initials = email.slice(0, 2).toUpperCase();
 
   return (
     <div className="flex min-h-screen">
@@ -120,7 +145,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               {n.label}
             </Link>
           ))}
-          <div className="mt-4 mb-1 px-3 text-xs font-bold tracking-wider text-nav-foreground/60 uppercase">Masters</div>
+          <div className="mt-4 mb-1 px-3 text-xs font-bold tracking-wider text-nav-foreground/60 uppercase">
+            Masters
+          </div>
           {masters.map((n) => (
             <Link
               key={n.to}
@@ -138,15 +165,32 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="flex items-center justify-between gap-3 border-b bg-card px-6 py-3">
           <nav className="flex gap-1 overflow-x-auto md:hidden">
             {[...nav, ...masters].map((n) => (
-              <Link key={n.to} to={n.to} aria-label={n.label} className="rounded-md p-2 text-muted-foreground" activeProps={{ className: "!text-primary" }}>
+              <Link
+                key={n.to}
+                to={n.to}
+                aria-label={n.label}
+                className="rounded-md p-2 text-muted-foreground"
+                activeProps={{ className: "!text-primary" }}
+              >
                 <n.icon className="h-5 w-5" />
               </Link>
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-xs font-bold text-accent-foreground">{initials}</span>
-            <span className="hidden text-sm font-medium sm:block">{session.fullName || email}</span>
-            <Button variant="ghost" size="icon" onClick={logOut} aria-label="Sign out">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-xs font-bold text-accent-foreground">
+              {initials}
+            </span>
+            <span className="hidden text-sm font-medium sm:block">{email}</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={async () => {
+                await signOut();
+                // Refetch the now-empty session so the sign-in form shows; drops cached data too.
+                await qc.resetQueries();
+              }}
+              aria-label="Sign out"
+            >
               <LogOut className="h-4 w-4" />
             </Button>
           </div>

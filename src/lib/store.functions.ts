@@ -1,489 +1,459 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "@/lib/auth-middleware";
-import type { StoreSnapshot } from "@/lib/types";
 
-// Kept in step with CONDITIONS / FILE_KINDS in src/lib/store.ts (not imported: that module is
-// client-side React code).
-const CONDITION = z.enum(["Good", "Spoiled", "Quarantined"]);
-const FILE_KIND = z.enum(["manual", "software", "file"]);
-const EXPIRED_REASON = "Calibration expired";
-export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+export type Equipment = {
+  id: string;
+  code: string;
+  type: string;
+  brand: string;
+  model: string;
+  serial_no: string;
+  photo_path: string | null;
+  specification: string;
+  location: string;
+  service_details: string;
+  notes: string;
+  status: string;
+  category_id: string | null;
+  subcategory_id: string | null;
+  department_id: string | null;
+  store_no: string;
+  condition: string;
+  quarantine_reason: string;
+  set_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+export type Calibration = {
+  id: string;
+  equipment_id: string;
+  calibration_date: string;
+  expiry_date: string;
+  certificate_path: string | null;
+  certificate_name: string | null;
+  performed_by: string;
+  remarks: string;
+  created_at: string;
+};
+export type Issuance = {
+  id: string;
+  equipment_id: string;
+  issued_to: string;
+  department: string;
+  purpose: string;
+  issuance_date: string;
+  expected_return_date: string | null;
+  return_date: string | null;
+  return_condition: string | null;
+  notes: string;
+  return_notes: string;
+  technician_id: string | null;
+  report_no: string;
+  job_no: string;
+  job_description: string;
+  job_location: string;
+  reconciled: boolean;
+  reconciled_by: string;
+  created_at: string;
+};
+export type Category = { id: string; name: string; created_at: string };
+export type Subcategory = { id: string; category_id: string; name: string; created_at: string };
+export type Department = { id: string; name: string; created_at: string };
+export type Technician = {
+  id: string;
+  name: string;
+  employee_no: string;
+  department_id: string | null;
+  phone: string;
+  created_at: string;
+};
+export type EquipmentSet = { id: string; name: string; notes: string; created_at: string };
+export type EquipmentFile = {
+  id: string;
+  equipment_id: string;
+  kind: string;
+  path: string;
+  name: string;
+  created_at: string;
+};
 
-const id = z.string().uuid("Invalid id");
-const optId = z.string().uuid().nullable();
-const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a valid date");
-const text = (max: number, label = "Text") => z.string().max(max, `${label} is too long`);
-const longText = z.string().max(100_000);
+export const EXPIRED_REASON = "Calibration expired";
 
-/** Validates input and reports the first problem as a plain message (not a zod JSON dump). */
-function parse<T extends z.ZodType>(schema: T, data: unknown): z.output<T> {
-  const result = schema.safeParse(data);
-  if (!result.success) throw new Error(result.error.issues[0]?.message ?? "Invalid input");
-  return result.data;
-}
+const EQUIPMENT_COLUMNS = `id, code, type, brand, model, serial_no, photo_path, specification, location,
+  service_details, notes, status, category_id, subcategory_id, department_id, store_no, condition,
+  quarantine_reason, set_id, created_at, updated_at`;
 
-/** Throws a friendly message for unique-constraint violations. */
-async function friendly<T>(work: () => Promise<T>, duplicateMessage: string): Promise<T> {
-  const { isDuplicateKeyError } = await import("@/server/db.server");
-  try {
-    return await work();
-  } catch (error) {
-    if (isDuplicateKeyError(error)) throw new Error(duplicateMessage);
-    throw error;
-  }
-}
-
-// ── Read everything ─────────────────────────────────────────────────────────────────────
-
-/** The whole (small) inventory in one round trip; the UI caches it under the "store" key. */
-export const getStore = createServerFn({ method: "GET" })
+/** Everything the store screens show, loaded in one round trip. */
+export const loadStore = createServerFn({ method: "GET" })
   .middleware([requireAuth])
-  .handler(async (): Promise<StoreSnapshot> => {
-    const { request, plainRows } = await import("@/server/db.server");
-    const req = await request();
-    const { recordsets } = await req.query(
-      `SELECT * FROM dbo.equipment ORDER BY created_at DESC;
-       SELECT * FROM dbo.calibrations ORDER BY calibration_date DESC;
-       SELECT * FROM dbo.issuances ORDER BY issuance_date DESC, created_at DESC;
-       SELECT * FROM dbo.categories ORDER BY name;
-       SELECT * FROM dbo.subcategories ORDER BY name;
-       SELECT * FROM dbo.departments ORDER BY name;
-       SELECT * FROM dbo.technicians ORDER BY name;
-       SELECT * FROM dbo.equipment_sets ORDER BY name;
-       SELECT * FROM dbo.equipment_files ORDER BY created_at;`,
+  .handler(async () => {
+    const { selectJson, execute } = await import("@/server/rows.server");
+    // Persist quarantine for equipment whose latest calibration has expired, so the record
+    // itself reflects it.
+    await execute(
+      `UPDATE e SET condition = N'Quarantined', quarantine_reason = @reason
+         FROM dbo.equipment e
+        WHERE e.condition <> N'Quarantined'
+          AND (SELECT MAX(c.expiry_date) FROM dbo.calibrations c WHERE c.equipment_id = e.id)
+              < CAST(GETDATE() AS DATE)`,
+      { reason: EXPIRED_REASON },
     );
-    const sets = recordsets as unknown as Parameters<typeof plainRows>[0][];
-    const [equipment, calibrations, issuances, categories, subcategories, departments, technicians, equipmentSets, files] = sets.map(
-      (rs) => plainRows(rs),
-    );
+    const [
+      equipment,
+      calibrations,
+      issuances,
+      categories,
+      subcategories,
+      departments,
+      technicians,
+      sets,
+      files,
+    ] = await Promise.all([
+      selectJson<Equipment>(
+        `SELECT ${EQUIPMENT_COLUMNS} FROM dbo.equipment ORDER BY created_at DESC`,
+      ),
+      selectJson<Calibration>(
+        `SELECT id, equipment_id, calibration_date, expiry_date, certificate_path, certificate_name,
+                  performed_by, remarks, created_at
+             FROM dbo.calibrations ORDER BY calibration_date DESC`,
+      ),
+      selectJson<Issuance>(
+        `SELECT id, equipment_id, issued_to, department, purpose, issuance_date, expected_return_date,
+                  return_date, return_condition, notes, return_notes, technician_id, report_no, job_no,
+                  job_description, job_location, reconciled, reconciled_by, created_at
+             FROM dbo.issuances ORDER BY issuance_date DESC, created_at DESC`,
+      ),
+      selectJson<Category>(`SELECT id, name, created_at FROM dbo.categories ORDER BY name`),
+      selectJson<Subcategory>(
+        `SELECT id, category_id, name, created_at FROM dbo.subcategories ORDER BY name`,
+      ),
+      selectJson<Department>(`SELECT id, name, created_at FROM dbo.departments ORDER BY name`),
+      selectJson<Technician>(
+        `SELECT id, name, employee_no, department_id, phone, created_at FROM dbo.technicians ORDER BY name`,
+      ),
+      selectJson<EquipmentSet>(
+        `SELECT id, name, notes, created_at FROM dbo.equipment_sets ORDER BY name`,
+      ),
+      selectJson<EquipmentFile>(
+        `SELECT id, equipment_id, kind, path, name, created_at FROM dbo.equipment_files ORDER BY created_at`,
+      ),
+    ]);
     return {
-      equipment, calibrations, issuances, categories, subcategories, departments, technicians,
-      sets: equipmentSets, files,
-    } as StoreSnapshot;
+      equipment,
+      calibrations,
+      issuances,
+      categories,
+      subcategories,
+      departments,
+      technicians,
+      sets,
+      files,
+    };
   });
 
-/** Persists Quarantined for equipment whose latest calibration has expired (see effectiveCondition). */
-export const quarantineExpired = createServerFn({ method: "POST" })
+// ------------------------------------------------------------------ generic saves
+
+const id = z.string().uuid();
+const optionalId = z
+  .string()
+  .uuid()
+  .nullish()
+  .or(z.literal(""))
+  .transform((v) => v || null);
+const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a valid date.");
+const optionalDate = date
+  .nullish()
+  .or(z.literal(""))
+  .transform((v) => v || null);
+const text = (max = 100_000) => z.string().max(max);
+const filePath = z
+  .string()
+  .max(400)
+  .nullish()
+  .transform((v) => v || null);
+
+/** The tables staff may write through saveRow/deleteRow, and the columns each one accepts. */
+const writable = {
+  categories: z.object({ name: text(200).trim().min(1, "Name is required") }),
+  subcategories: z.object({ category_id: id, name: text(200).trim().min(1, "Name is required") }),
+  departments: z.object({ name: text(200).trim().min(1, "Name is required") }),
+  technicians: z.object({
+    name: text(200).trim().min(1, "Name is required"),
+    employee_no: text(100).optional(),
+    department_id: optionalId.optional(),
+    phone: text(100).optional(),
+  }),
+  equipment_sets: z.object({
+    name: text(200).trim().min(1, "Set name is required"),
+    notes: text().optional(),
+  }),
+  calibrations: z.object({
+    equipment_id: id,
+    calibration_date: date,
+    expiry_date: date,
+    performed_by: text(200),
+    remarks: text(),
+    certificate_path: filePath,
+    certificate_name: text(260)
+      .nullish()
+      .transform((v) => v || null),
+  }),
+  equipment_files: z.object({
+    equipment_id: id,
+    kind: z.enum(["manual", "software", "file"]),
+    name: text(260),
+    path: text(400),
+  }),
+  // Equipment edits from the Sets page (assigning a set).
+  equipment: z.object({ set_id: optionalId }),
+} as const;
+type WritableTable = keyof typeof writable;
+
+const saveSchema = z
+  .object({
+    table: z.enum(Object.keys(writable) as [WritableTable, ...WritableTable[]]),
+    id: id.optional(),
+    row: z.record(z.string(), z.unknown()),
+  })
+  .transform((d, ctx) => {
+    const schema = d.id ? writable[d.table].partial() : writable[d.table];
+    const parsed = schema.safeParse(d.row);
+    if (!parsed.success) {
+      ctx.addIssue({
+        code: "custom",
+        message: parsed.error.issues[0]?.message ?? "Invalid input.",
+      });
+      return z.NEVER;
+    }
+    return { table: d.table, id: d.id, row: parsed.data as Record<string, unknown> };
+  });
+
+/** Inserts (no id) or updates (with id) one row of a master/staff table. */
+export const saveRow = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .validator((d: unknown) => parse(z.object({ ids: z.array(id).max(10_000) }), d))
+  .inputValidator((d: unknown) => saveSchema.parse(d))
   .handler(async ({ data }) => {
-    if (!data.ids.length) return { ok: true };
-    const { request, sql } = await import("@/server/db.server");
-    const req = await request();
-    await req
-      .input("ids", sql.NVarChar(sql.MAX), JSON.stringify(data.ids))
-      .input("reason", sql.NVarChar(400), EXPIRED_REASON)
-      .query(
-        `UPDATE dbo.equipment SET condition = N'Quarantined', quarantine_reason = @reason
-          WHERE condition <> N'Quarantined'
-            AND id IN (SELECT TRY_CONVERT(UNIQUEIDENTIFIER, value) FROM OPENJSON(@ids))`,
-      );
+    const { insertRow, updateRow } = await import("@/server/rows.server");
+    const { isDuplicateKeyError } = await import("@/server/db.server");
+    if (data.table === "equipment" && !data.id)
+      throw new Error("Use the equipment form to add equipment.");
+    try {
+      if (data.id) {
+        const extra = data.table === "equipment" ? "updated_at = SYSUTCDATETIME()" : "";
+        await updateRow(data.table, data.id, data.row, extra);
+        return { id: data.id };
+      }
+      return { id: await insertRow(data.table, data.row) };
+    } catch (error) {
+      if (isDuplicateKeyError(error)) throw new Error("Already exists");
+      throw error;
+    }
+  });
+
+/** Deletes one row. Deleting equipment is for Master Admins only. */
+export const deleteRow = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        table: z.enum([...(Object.keys(writable) as WritableTable[])] as [
+          WritableTable,
+          ...WritableTable[],
+        ]),
+        id,
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    if (data.table === "equipment" && context.user.role !== "admin")
+      throw new Error("Only Master Admins can delete equipment.");
+    const { execute } = await import("@/server/rows.server");
+    // equipment.subcategory_id has no ON DELETE action (SQL Server allows one cascade path),
+    // so clear it here, as the original schema did with ON DELETE SET NULL.
+    const clearSubcategory =
+      {
+        subcategories: `UPDATE dbo.equipment SET subcategory_id = NULL WHERE subcategory_id = @id;`,
+        categories: `UPDATE dbo.equipment SET subcategory_id = NULL
+                    WHERE subcategory_id IN (SELECT id FROM dbo.subcategories WHERE category_id = @id);`,
+      }[data.table as string] ?? "";
+    await execute(
+      `SET XACT_ABORT ON;
+       BEGIN TRANSACTION;
+         ${clearSubcategory}
+         DELETE FROM dbo.${data.table} WHERE id = @id;
+       COMMIT TRANSACTION;`,
+      { id: data.id },
+    );
     return { ok: true };
   });
 
-// ── Files ───────────────────────────────────────────────────────────────────────────────
-
-/** Stores an uploaded file in SQL Server and returns its id (kept as the record's *_path). */
-export const uploadFile = createServerFn({ method: "POST" })
-  .middleware([requireAuth])
-  .validator((d: unknown) => {
-    if (!(d instanceof FormData)) throw new Error("Expected form data.");
-    const file = d.get("file");
-    if (!(file instanceof File) || file.size === 0) throw new Error("Choose a file to upload.");
-    if (file.size > MAX_UPLOAD_BYTES)
-      throw new Error(`"${file.name}" is larger than ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`);
-    return file;
-  })
-  .handler(async ({ data: file }) => {
-    const { request, sql } = await import("@/server/db.server");
-    const fileId = crypto.randomUUID();
-    const req = await request();
-    await req
-      .input("id", sql.UniqueIdentifier, fileId)
-      .input("name", sql.NVarChar(400), file.name.slice(0, 400))
-      .input("content_type", sql.NVarChar(200), (file.type || "application/octet-stream").slice(0, 200))
-      .input("size", sql.BigInt, file.size)
-      .input("data", sql.VarBinary(sql.MAX), Buffer.from(await file.arrayBuffer()))
-      .query(
-        `INSERT INTO dbo.files (id, name, content_type, size, data)
-         VALUES (@id, @name, @content_type, @size, @data)`,
-      );
-    return { id: fileId };
-  });
-
-// ── Equipment ───────────────────────────────────────────────────────────────────────────
+// ------------------------------------------------------------------ equipment, issuing, returns
 
 const equipmentSchema = z.object({
   id: id.optional(),
-  category_id: z.string().uuid("Category is required"),
-  subcategory_id: optId,
-  department_id: optId,
-  set_id: optId,
-  brand: text(200, "Brand"),
-  model: text(200, "Model"),
-  serial_no: text(200, "Serial No"),
-  store_no: text(200, "Store No"),
-  location: text(400, "Location"),
-  specification: longText,
-  service_details: longText,
-  notes: longText,
-  condition: CONDITION,
-  quarantine_reason: text(400, "Reason for quarantine"),
-  photo_path: optId,
-  attachments: z
-    .array(z.object({ kind: FILE_KIND, name: text(400, "File name"), path: id }))
-    .max(200),
+  type: text(200),
+  category_id: id,
+  subcategory_id: optionalId,
+  department_id: optionalId,
+  set_id: optionalId,
+  brand: text(200),
+  model: text(200),
+  serial_no: text(200),
+  store_no: text(100),
+  specification: text(),
+  location: text(300),
+  service_details: text(),
+  notes: text(),
+  condition: z.enum(["Good", "Spoiled", "Quarantined"]),
+  quarantine_reason: text(),
+  photo_path: filePath,
 });
 
-/** Creates or updates equipment plus any newly attached files, in one transaction. */
+/** Registers or updates equipment and returns the saved row (with its generated code). */
 export const saveEquipment = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .validator((d: unknown) => parse(equipmentSchema, d))
-  .handler(async ({ data }) => {
-    if (data.condition === "Quarantined" && !data.quarantine_reason.trim())
-      throw new Error("Enter a reason for quarantine");
-    const { request, sql, purgeOrphanFiles } = await import("@/server/db.server");
-    const equipmentId = data.id ?? crypto.randomUUID();
-    const req = await request();
-    req.input("id", sql.UniqueIdentifier, equipmentId);
-    for (const key of ["category_id", "subcategory_id", "department_id", "set_id"] as const)
-      req.input(key, sql.UniqueIdentifier, data[key]);
-    for (const key of ["brand", "model", "serial_no", "store_no", "location", "specification", "service_details", "notes", "condition"] as const)
-      req.input(key, sql.NVarChar(sql.MAX), data[key]);
-    req.input("quarantine_reason", sql.NVarChar(400), data.condition === "Quarantined" ? data.quarantine_reason : "");
-    req.input("photo_path", sql.NVarChar(400), data.photo_path);
-    req.input("attachments", sql.NVarChar(sql.MAX), JSON.stringify(data.attachments));
-
-    const write = data.id
-      ? `UPDATE dbo.equipment SET
-           type = (SELECT name FROM dbo.categories WHERE id = @category_id),
-           category_id = @category_id, subcategory_id = @subcategory_id, department_id = @department_id,
-           set_id = @set_id, brand = @brand, model = @model, serial_no = @serial_no, store_no = @store_no,
-           location = @location, specification = @specification, service_details = @service_details,
-           notes = @notes, condition = @condition, quarantine_reason = @quarantine_reason,
-           photo_path = @photo_path, updated_at = SYSUTCDATETIME()
-         WHERE id = @id;
-         IF @@ROWCOUNT = 0 THROW 50001, N'Equipment not found', 1;`
-      : `DECLARE @n BIGINT;
-         SET @n = NEXT VALUE FOR dbo.equipment_code_seq;
-         INSERT INTO dbo.equipment (id, code, type, category_id, subcategory_id, department_id, set_id, brand, model,
-           serial_no, store_no, location, specification, service_details, notes, condition, quarantine_reason, photo_path)
-         VALUES (@id, N'EQ-' + IIF(@n < 100000, RIGHT(N'0000' + CAST(@n AS NVARCHAR(20)), 5), CAST(@n AS NVARCHAR(20))),
-           (SELECT name FROM dbo.categories WHERE id = @category_id), @category_id, @subcategory_id, @department_id,
-           @set_id, @brand, @model, @serial_no, @store_no, @location, @specification, @service_details, @notes,
-           @condition, @quarantine_reason, @photo_path);`;
-
-    const { recordset } = await req.query<{ id: string; code: string }>(
-      `SET XACT_ABORT ON;
-       BEGIN TRANSACTION;
-         IF NOT EXISTS (SELECT 1 FROM dbo.categories WHERE id = @category_id)
-           THROW 50001, N'Category is required', 1;
-         ${write}
-         INSERT INTO dbo.equipment_files (equipment_id, kind, name, path)
-         SELECT @id, kind, name, path
-           FROM OPENJSON(@attachments) WITH (kind NVARCHAR(20), name NVARCHAR(400), path NVARCHAR(400));
-       COMMIT TRANSACTION;
-       SELECT LOWER(CONVERT(NVARCHAR(36), id)) AS id, code FROM dbo.equipment WHERE id = @id;`,
+  .inputValidator((d: unknown) => equipmentSchema.parse(d))
+  .handler(async ({ data: { id, ...row } }) => {
+    const { insertRow, updateRow, selectOneJson } = await import("@/server/rows.server");
+    let savedId = id;
+    if (id) await updateRow("equipment", id, row, "updated_at = SYSUTCDATETIME()");
+    else savedId = await insertRow("equipment", row);
+    const saved = await selectOneJson<Equipment>(
+      `SELECT ${EQUIPMENT_COLUMNS} FROM dbo.equipment WHERE id = @id`,
+      { id: savedId },
     );
-    await purgeOrphanFiles();
-    const saved = recordset[0];
-    if (!saved) throw new Error("Equipment could not be saved.");
+    if (!saved) throw new Error("This record no longer exists.");
     return saved;
   });
 
-/** Only Master Admins may delete equipment; calibrations, issuances and files go with it. */
-export const deleteEquipment = createServerFn({ method: "POST" })
-  .middleware([requireAdmin])
-  .validator((d: unknown) => parse(z.object({ id }), d))
-  .handler(async ({ data }) => {
-    const { request, sql, purgeOrphanFiles } = await import("@/server/db.server");
-    const req = await request();
-    await req.input("id", sql.UniqueIdentifier, data.id).query(`DELETE FROM dbo.equipment WHERE id = @id`);
-    await purgeOrphanFiles();
-    return { ok: true };
-  });
-
-export const deleteEquipmentFile = createServerFn({ method: "POST" })
-  .middleware([requireAuth])
-  .validator((d: unknown) => parse(z.object({ id }), d))
-  .handler(async ({ data }) => {
-    const { request, sql, purgeOrphanFiles } = await import("@/server/db.server");
-    const req = await request();
-    await req.input("id", sql.UniqueIdentifier, data.id).query(`DELETE FROM dbo.equipment_files WHERE id = @id`);
-    await purgeOrphanFiles();
-    return { ok: true };
-  });
-
-// ── Calibrations ────────────────────────────────────────────────────────────────────────
-
-const calibrationSchema = z.object({
-  id: id.optional(),
-  equipment_id: z.string().uuid("Select equipment"),
-  calibration_date: date,
-  expiry_date: date,
-  performed_by: text(200, "Performed By"),
-  remarks: longText,
-  certificate_path: optId,
-  certificate_name: text(400, "Certificate name").nullable(),
-});
-
-export const saveCalibration = createServerFn({ method: "POST" })
-  .middleware([requireAuth])
-  .validator((d: unknown) => parse(calibrationSchema, d))
-  .handler(async ({ data }) => {
-    if (data.expiry_date < data.calibration_date)
-      throw new Error("Expiry date must be after calibration date");
-    const { request, sql, purgeOrphanFiles } = await import("@/server/db.server");
-    const req = await request();
-    req
-      .input("id", sql.UniqueIdentifier, data.id ?? crypto.randomUUID())
-      .input("equipment_id", sql.UniqueIdentifier, data.equipment_id)
-      .input("calibration_date", sql.NVarChar(10), data.calibration_date)
-      .input("expiry_date", sql.NVarChar(10), data.expiry_date)
-      .input("performed_by", sql.NVarChar(200), data.performed_by)
-      .input("remarks", sql.NVarChar(sql.MAX), data.remarks)
-      .input("certificate_path", sql.NVarChar(400), data.certificate_path)
-      .input("certificate_name", sql.NVarChar(400), data.certificate_name);
-    await req.query(
-      data.id
-        ? `UPDATE dbo.calibrations SET equipment_id = @equipment_id,
-             calibration_date = CAST(@calibration_date AS DATE), expiry_date = CAST(@expiry_date AS DATE),
-             performed_by = @performed_by, remarks = @remarks,
-             certificate_path = @certificate_path, certificate_name = @certificate_name
-           WHERE id = @id`
-        : `INSERT INTO dbo.calibrations (id, equipment_id, calibration_date, expiry_date, performed_by, remarks,
-             certificate_path, certificate_name)
-           VALUES (@id, @equipment_id, CAST(@calibration_date AS DATE), CAST(@expiry_date AS DATE), @performed_by,
-             @remarks, @certificate_path, @certificate_name)`,
-    );
-    await purgeOrphanFiles();
-    return { ok: true };
-  });
-
-export const deleteCalibration = createServerFn({ method: "POST" })
-  .middleware([requireAuth])
-  .validator((d: unknown) => parse(z.object({ id }), d))
-  .handler(async ({ data }) => {
-    const { request, sql, purgeOrphanFiles } = await import("@/server/db.server");
-    const req = await request();
-    await req.input("id", sql.UniqueIdentifier, data.id).query(`DELETE FROM dbo.calibrations WHERE id = @id`);
-    await purgeOrphanFiles();
-    return { ok: true };
-  });
-
-// ── Issuance ────────────────────────────────────────────────────────────────────────────
-
 const issueSchema = z.object({
-  equipment_ids: z.array(id).min(1, "Select equipment").max(1000),
-  technician_id: z.string().uuid("Select a technician"),
+  equipment_ids: z.array(id).min(1, "Select equipment"),
+  issued_to: text(200).min(1),
+  technician_id: optionalId,
+  department: text(200),
   issuance_date: date,
-  expected_return_date: date.nullable(),
-  job_no: text(100, "Job No").trim().min(1, "Job No is required"),
-  job_description: longText.trim().min(1, "Job Description is required"),
-  job_location: text(400, "Job Location"),
-  purpose: text(400, "Purpose"),
-  notes: longText,
+  expected_return_date: optionalDate,
+  job_no: text(200),
+  job_description: text(),
+  job_location: text(300),
+  purpose: text(),
+  notes: text(),
 });
 
-/** Issues one item or a whole set under a single new report number. */
-export const createIssuance = createServerFn({ method: "POST" })
+/** Issues one or more items on a single issuance report and marks them issued. */
+export const issueEquipment = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .validator((d: unknown) => parse(issueSchema, d))
-  .handler(async ({ data }) => {
-    if (data.expected_return_date && data.expected_return_date < data.issuance_date)
-      throw new Error("Expected return date must be after issuance date");
-    const { request, sql } = await import("@/server/db.server");
-    const req = await request();
-    const { recordset } = await req
-      .input("ids", sql.NVarChar(sql.MAX), JSON.stringify([...new Set(data.equipment_ids)]))
-      .input("technician_id", sql.UniqueIdentifier, data.technician_id)
-      .input("issuance_date", sql.NVarChar(10), data.issuance_date)
-      .input("expected_return_date", sql.NVarChar(10), data.expected_return_date)
-      .input("job_no", sql.NVarChar(100), data.job_no)
-      .input("job_description", sql.NVarChar(sql.MAX), data.job_description)
-      .input("job_location", sql.NVarChar(400), data.job_location)
-      .input("purpose", sql.NVarChar(400), data.purpose)
-      .input("notes", sql.NVarChar(sql.MAX), data.notes)
-      .query<{ report_no: string }>(
-        `SET XACT_ABORT ON;
-         BEGIN TRANSACTION;
-           DECLARE @items TABLE (id UNIQUEIDENTIFIER PRIMARY KEY);
-           INSERT INTO @items (id) SELECT DISTINCT TRY_CONVERT(UNIQUEIDENTIFIER, value) FROM OPENJSON(@ids);
-           IF (SELECT COUNT(*) FROM dbo.equipment WITH (UPDLOCK, HOLDLOCK) WHERE id IN (SELECT id FROM @items))
-              <> (SELECT COUNT(*) FROM @items)
-             THROW 50001, N'Some equipment no longer exists', 1;
-           IF EXISTS (SELECT 1 FROM dbo.equipment WHERE id IN (SELECT id FROM @items)
-                       AND (status = N'issued' OR condition = N'Quarantined'))
-             THROW 50001, N'Some equipment is issued or quarantined and cannot be issued', 1;
-           IF NOT EXISTS (SELECT 1 FROM dbo.technicians WHERE id = @technician_id)
-             THROW 50001, N'Select a technician', 1;
-
-           DECLARE @n BIGINT;
-           SET @n = NEXT VALUE FOR dbo.issuance_report_seq;
-           DECLARE @report NVARCHAR(20) =
-             N'IR-' + IIF(@n < 100000, RIGHT(N'0000' + CAST(@n AS NVARCHAR(20)), 5), CAST(@n AS NVARCHAR(20)));
-
-           INSERT INTO dbo.issuances (equipment_id, technician_id, report_no, issued_to, department, purpose,
-             job_no, job_description, job_location, issuance_date, expected_return_date, notes)
-           SELECT i.id, t.id, @report, t.name, ISNULL(d.name, N''), @purpose,
-             @job_no, @job_description, @job_location, CAST(@issuance_date AS DATE),
-             CAST(@expected_return_date AS DATE), @notes
-             FROM @items i
-             CROSS JOIN dbo.technicians t
-             LEFT JOIN dbo.departments d ON d.id = t.department_id
-            WHERE t.id = @technician_id;
-
-           UPDATE dbo.equipment SET status = N'issued', updated_at = SYSUTCDATETIME()
-            WHERE id IN (SELECT id FROM @items);
-         COMMIT TRANSACTION;
-         SELECT @report AS report_no;`,
+  .inputValidator((d: unknown) => issueSchema.parse(d))
+  .handler(async ({ data: { equipment_ids, ...base } }) => {
+    const { getPool, sql } = await import("@/server/db.server");
+    const pool = await getPool();
+    const tx = new sql.Transaction(pool);
+    await tx.begin();
+    try {
+      const { recordset } = await new sql.Request(tx).query<{ report_no: string }>(
+        `SELECT N'IR-' + RIGHT(N'00000' + CAST(NEXT VALUE FOR dbo.issuance_report_seq AS NVARCHAR(20)), 5) AS report_no`,
       );
-    const reportNo = recordset[0]?.report_no;
-    if (!reportNo) throw new Error("Issuance could not be saved.");
-    return { reportNo };
+      const reportNo = recordset[0]!.report_no;
+      for (const equipmentId of equipment_ids) {
+        const req = new sql.Request(tx);
+        for (const [name, value] of Object.entries(base)) req.input(name, value);
+        const { rowsAffected } = await req
+          .input("equipment_id", sql.UniqueIdentifier, equipmentId)
+          .input("report_no", sql.NVarChar(20), reportNo)
+          .query(
+            `UPDATE dbo.equipment SET status = N'issued', updated_at = SYSUTCDATETIME()
+              WHERE id = @equipment_id AND status <> N'issued';
+             INSERT INTO dbo.issuances
+               (equipment_id, report_no, ${Object.keys(base).join(", ")})
+             SELECT @equipment_id, @report_no, ${Object.keys(base)
+               .map((k) => `@${k}`)
+               .join(", ")}
+              WHERE @@ROWCOUNT = 1;`,
+          );
+        if (!rowsAffected[1])
+          throw new Error("Some equipment is already issued and cannot be issued");
+      }
+      await tx.commit();
+      return { reportNo };
+    } catch (error) {
+      await tx.rollback().catch(() => {});
+      throw error;
+    }
   });
 
 const returnSchema = z.object({
-  id,
+  issuance_id: id,
   return_date: date,
-  condition: CONDITION,
-  reason: text(400, "Reason for quarantine"),
-  notes: longText,
+  return_condition: z.enum(["Good", "Spoiled", "Quarantined"]),
+  return_notes: text(),
+  quarantine_reason: text(),
 });
 
-/** Records the return, marks it reconciled by the signed-in user and frees the equipment. */
-export const returnIssuance = createServerFn({ method: "POST" })
+/** Records the return of an issued item and puts it back in the store with its condition. */
+export const returnEquipment = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .validator((d: unknown) => parse(returnSchema, d))
+  .inputValidator((d: unknown) => returnSchema.parse(d))
   .handler(async ({ data, context }) => {
-    if (data.condition === "Quarantined" && !data.reason.trim())
-      throw new Error("Enter a reason for quarantine");
-    const { request, sql } = await import("@/server/db.server");
-    const req = await request();
-    await req
-      .input("id", sql.UniqueIdentifier, data.id)
-      .input("return_date", sql.NVarChar(10), data.return_date)
-      .input("condition", sql.NVarChar(20), data.condition)
-      .input("reason", sql.NVarChar(400), data.condition === "Quarantined" ? data.reason : "")
-      .input("notes", sql.NVarChar(sql.MAX), data.notes)
-      .input("by", sql.NVarChar(320), context.user.email)
-      .query(
-        `SET XACT_ABORT ON;
-         BEGIN TRANSACTION;
-           DECLARE @equipment_id UNIQUEIDENTIFIER, @issued DATE, @returned DATE;
-           SELECT @equipment_id = equipment_id, @issued = issuance_date, @returned = return_date
-             FROM dbo.issuances WITH (UPDLOCK) WHERE id = @id;
-           IF @equipment_id IS NULL THROW 50001, N'Issuance not found', 1;
-           IF @returned IS NOT NULL THROW 50001, N'This equipment has already been returned', 1;
-           IF CAST(@return_date AS DATE) < @issued THROW 50001, N'Return date cannot be before issuance date', 1;
-
-           UPDATE dbo.issuances SET return_date = CAST(@return_date AS DATE), return_condition = @condition,
-             return_notes = @notes, reconciled = 1, reconciled_by = @by
-            WHERE id = @id;
-           UPDATE dbo.equipment SET status = N'available', condition = @condition,
-             quarantine_reason = @reason, updated_at = SYSUTCDATETIME()
-            WHERE id = @equipment_id;
-         COMMIT TRANSACTION;`,
-      );
-    return { ok: true };
-  });
-
-// ── Master data and sets ────────────────────────────────────────────────────────────────
-
-const name = text(200, "Name").trim().min(1, "Name is required");
-const masterSchema = z.discriminatedUnion("table", [
-  z.object({ table: z.literal("categories"), id: id.optional(), values: z.object({ name }) }),
-  z.object({
-    table: z.literal("subcategories"),
-    id: id.optional(),
-    values: z.object({ name, category_id: z.string().uuid("Select a category") }),
-  }),
-  z.object({ table: z.literal("departments"), id: id.optional(), values: z.object({ name }) }),
-  z.object({
-    table: z.literal("technicians"),
-    id: id.optional(),
-    values: z.object({
-      name,
-      employee_no: text(100, "Employee No").trim(),
-      department_id: optId,
-      phone: text(100, "Phone").trim(),
-    }),
-  }),
-  z.object({
-    table: z.literal("equipment_sets"),
-    id: id.optional(),
-    values: z.object({ name, notes: longText }),
-  }),
-]);
-export type MasterTable = z.infer<typeof masterSchema>["table"];
-
-/** Adds (no id) or updates a master-data row. Column names come from the schemas above only. */
-export const saveMaster = createServerFn({ method: "POST" })
-  .middleware([requireAuth])
-  .validator((d: unknown) => parse(masterSchema, d))
-  .handler(async ({ data }) => {
-    const { request, sql } = await import("@/server/db.server");
-    const req = await request();
-    const values = data.values as Record<string, string | null>;
-    const columns = Object.keys(values);
-    for (const col of columns)
-      req.input(col, col.endsWith("_id") ? sql.UniqueIdentifier : sql.NVarChar(sql.MAX), values[col]);
-    req.input("id", sql.UniqueIdentifier, data.id ?? crypto.randomUUID());
-    const statement = data.id
-      ? `UPDATE dbo.${data.table} SET ${columns.map((c) => `${c} = @${c}`).join(", ")} WHERE id = @id`
-      : `INSERT INTO dbo.${data.table} (id, ${columns.join(", ")}) VALUES (@id, ${columns.map((c) => `@${c}`).join(", ")})`;
-    await friendly(() => req.query(statement), "Already exists");
-    return { ok: true };
-  });
-
-// What to clear before deleting each kind of master row (the FKs use NO ACTION; see schema.sql).
-const clearReferences: Record<MasterTable, string> = {
-  categories: `UPDATE dbo.equipment SET category_id = NULL, subcategory_id = NULL
-                WHERE category_id = @id
-                   OR subcategory_id IN (SELECT id FROM dbo.subcategories WHERE category_id = @id);
-               DELETE FROM dbo.subcategories WHERE category_id = @id;`,
-  subcategories: `UPDATE dbo.equipment SET subcategory_id = NULL WHERE subcategory_id = @id;`,
-  departments: `UPDATE dbo.equipment SET department_id = NULL WHERE department_id = @id;
-                UPDATE dbo.technicians SET department_id = NULL WHERE department_id = @id;`,
-  technicians: `UPDATE dbo.issuances SET technician_id = NULL WHERE technician_id = @id;`,
-  equipment_sets: `UPDATE dbo.equipment SET set_id = NULL WHERE set_id = @id;`,
-};
-
-export const deleteMaster = createServerFn({ method: "POST" })
-  .middleware([requireAuth])
-  .validator((d: unknown) =>
-    parse(
-      z.object({
-        table: z.enum(["categories", "subcategories", "departments", "technicians", "equipment_sets"]),
-        id,
-      }),
-      d,
-    ),
-  )
-  .handler(async ({ data }) => {
-    const { request, sql } = await import("@/server/db.server");
-    const req = await request();
-    await req.input("id", sql.UniqueIdentifier, data.id).query(
+    const { execute } = await import("@/server/rows.server");
+    const { rowsAffected } = await execute(
       `SET XACT_ABORT ON;
        BEGIN TRANSACTION;
-         ${clearReferences[data.table]}
-         DELETE FROM dbo.${data.table} WHERE id = @id;
+         UPDATE dbo.issuances
+            SET return_date = @return_date, return_condition = @return_condition,
+                return_notes = @return_notes, reconciled = 1, reconciled_by = @reconciled_by
+          WHERE id = @issuance_id;
+         UPDATE e SET status = N'available', condition = @return_condition,
+                      quarantine_reason = CASE WHEN @return_condition = N'Quarantined' THEN @quarantine_reason ELSE N'' END,
+                      updated_at = SYSUTCDATETIME()
+           FROM dbo.equipment e JOIN dbo.issuances i ON i.equipment_id = e.id
+          WHERE i.id = @issuance_id;
        COMMIT TRANSACTION;`,
+      { ...data, reconciled_by: context.user.email },
     );
+    if (!rowsAffected.some(Boolean)) throw new Error("This record no longer exists.");
     return { ok: true };
   });
 
-/** Puts equipment into a set, or takes it out (setId null). */
-export const assignSet = createServerFn({ method: "POST" })
+/** Stores an uploaded photo/certificate/document and returns the path to save on the row. */
+export const uploadFile = createServerFn({ method: "POST" })
   .middleware([requireAuth])
-  .validator((d: unknown) => parse(z.object({ equipmentId: id, setId: optId }), d))
+  .inputValidator((d: unknown) => {
+    if (!(d instanceof FormData)) throw new Error("Expected form data.");
+    const file = d.get("file");
+    const folder = d.get("folder");
+    if (!(file instanceof File) || file.size === 0) throw new Error("Choose a file to upload.");
+    return { file, folder: typeof folder === "string" ? folder : "files" };
+  })
   .handler(async ({ data }) => {
-    const { request, sql } = await import("@/server/db.server");
-    const req = await request();
-    await req
-      .input("id", sql.UniqueIdentifier, data.equipmentId)
-      .input("set_id", sql.UniqueIdentifier, data.setId)
-      .query(`UPDATE dbo.equipment SET set_id = @set_id, updated_at = SYSUTCDATETIME() WHERE id = @id`);
+    const { saveFile } = await import("@/server/files.server");
+    return { path: await saveFile(data.file, data.folder) };
+  });
+
+// ------------------------------------------------------------------ Master Admins
+
+export type StaffUser = { id: string; email: string; isAdmin: boolean };
+
+export const listStaff = createServerFn({ method: "GET" })
+  .middleware([requireAuth])
+  .handler(async ({ context }) => {
+    const { selectJson } = await import("@/server/rows.server");
+    const users = await selectJson<{ id: string; email: string; role: string }>(
+      `SELECT id, email, role FROM dbo.users ORDER BY email`,
+    );
+    return {
+      users: users.map((u) => ({ id: u.id, email: u.email, isAdmin: u.role === "admin" })),
+      me: context.user.userId,
+    };
+  });
+
+export const setMasterAdmin = createServerFn({ method: "POST" })
+  .middleware([requireAdmin])
+  .inputValidator((d: unknown) => z.object({ userId: id, admin: z.boolean() }).parse(d))
+  .handler(async ({ data, context }) => {
+    if (data.userId.toLowerCase() === context.user.userId)
+      throw new Error("You cannot change your own role.");
+    const { updateRow } = await import("@/server/rows.server");
+    await updateRow("users", data.userId, { role: data.admin ? "admin" : "user" });
     return { ok: true };
   });

@@ -19,9 +19,19 @@ function NewEquipment() {
   const navigate = useNavigate();
   return (
     <>
-      <PageHeader title="Register New Equipment" back={<Link to="/equipment" aria-label="Back"><ArrowLeft className="h-5 w-5" /></Link>} />
+      <PageHeader
+        title="Register New Equipment"
+        back={
+          <Link to="/equipment" aria-label="Back">
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+        }
+      />
       <div className="panel p-6">
-        <EquipmentForm onDone={(id) => navigate({ to: "/equipment/$id", params: { id } })} onCancel={() => navigate({ to: "/equipment" })} />
+        <EquipmentForm
+          onDone={(id) => navigate({ to: "/equipment/$id", params: { id } })}
+          onCancel={() => navigate({ to: "/equipment" })}
+        />
       </div>
     </>
   );

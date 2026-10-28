@@ -27,7 +27,14 @@ function Page() {
       cols={[
         { key: "name", label: "Technician Name" },
         { key: "employee_no", label: "Employee No" },
-        { key: "department_id", label: "Department", render: (v, set) => <Combo value={v} onChange={set} options={depts} placeholder="Select department" />, show: (r) => L.dept(r["department_id"] as string) },
+        {
+          key: "department_id",
+          label: "Department",
+          render: (v, set) => (
+            <Combo value={v} onChange={set} options={depts} placeholder="Select department" />
+          ),
+          show: (r) => L.dept(r["department_id"] as string),
+        },
         { key: "phone", label: "Phone" },
       ]}
     />

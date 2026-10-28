@@ -116,18 +116,30 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
   }
-  h1, h2, h3 {
+  h1,
+  h2,
+  h3 {
     font-family: var(--font-display);
     letter-spacing: -0.01em;
   }
 }
 
 @utility gradient-nav {
-  background: linear-gradient(165deg, oklch(0.35 0.14 285) 0%, oklch(0.3 0.13 310) 55%, oklch(0.32 0.12 340) 100%);
+  background: linear-gradient(
+    165deg,
+    oklch(0.35 0.14 285) 0%,
+    oklch(0.3 0.13 310) 55%,
+    oklch(0.32 0.12 340) 100%
+  );
 }
 
 @utility gradient-header {
-  background: linear-gradient(90deg, oklch(0.55 0.24 275), oklch(0.6 0.2 310), oklch(0.62 0.19 340));
+  background: linear-gradient(
+    90deg,
+    oklch(0.55 0.24 275),
+    oklch(0.6 0.2 310),
+    oklch(0.62 0.19 340)
+  );
 }
 
 @utility stat-blue {
@@ -154,7 +166,9 @@
   background-color: var(--color-card);
   border: 1px solid var(--color-border);
   border-radius: calc(var(--radius) + 4px);
-  box-shadow: 0 1px 2px oklch(0.22 0.04 260 / 4%), 0 6px 24px -12px oklch(0.22 0.04 260 / 12%);
+  box-shadow:
+    0 1px 2px oklch(0.22 0.04 260 / 4%),
+    0 6px 24px -12px oklch(0.22 0.04 260 / 12%);
 }
 
 @utility data-table {

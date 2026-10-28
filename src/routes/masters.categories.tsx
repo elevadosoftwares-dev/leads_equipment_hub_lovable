@@ -16,5 +16,12 @@ export const Route = createFileRoute("/masters/categories")({
 
 function Page() {
   const { data } = useStore();
-  return <MasterList title="Master Category" table="categories" rows={data?.categories ?? []} cols={[{ key: "name", label: "Category Name" }]} />;
+  return (
+    <MasterList
+      title="Master Category"
+      table="categories"
+      rows={data?.categories ?? []}
+      cols={[{ key: "name", label: "Category Name" }]}
+    />
+  );
 }

@@ -12,18 +12,18 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminsRouteImport } from './routes/admins'
 import { Route as CalibrationRouteImport } from './routes/calibration'
+import { Route as IssuanceRouteImport } from './routes/issuance'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as SetsRouteImport } from './routes/sets'
 import { Route as EquipmentIndexRouteImport } from './routes/equipment.index'
 import { Route as EquipmentIdRouteImport } from './routes/equipment.$id'
 import { Route as EquipmentNewRouteImport } from './routes/equipment.new'
-import { Route as IssuanceIndexRouteImport } from './routes/issuance.index'
 import { Route as MastersCategoriesRouteImport } from './routes/masters.categories'
 import { Route as MastersDepartmentsRouteImport } from './routes/masters.departments'
 import { Route as MastersSubcategoriesRouteImport } from './routes/masters.subcategories'
 import { Route as MastersTechniciansRouteImport } from './routes/masters.technicians'
-import { Route as ApiFilesIdRouteImport } from './routes/api/files.$id'
+import { Route as ApiFilesSplatRouteImport } from './routes/api/files/$'
 import { Route as IssuanceReportNoRouteImport } from './routes/issuance.report.$no'
 
 const IndexRoute = IndexRouteImport.update({
@@ -39,6 +39,11 @@ const AdminsRoute = AdminsRouteImport.update({
 const CalibrationRoute = CalibrationRouteImport.update({
   id: '/calibration',
   path: '/calibration',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IssuanceRoute = IssuanceRouteImport.update({
+  id: '/issuance',
+  path: '/issuance',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ReportsRoute = ReportsRouteImport.update({
@@ -71,11 +76,6 @@ const EquipmentNewRoute = EquipmentNewRouteImport.update({
   path: '/equipment/new',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IssuanceIndexRoute = IssuanceIndexRouteImport.update({
-  id: '/issuance/',
-  path: '/issuance/',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const MastersCategoriesRoute = MastersCategoriesRouteImport.update({
   id: '/masters/categories',
   path: '/masters/categories',
@@ -96,21 +96,22 @@ const MastersTechniciansRoute = MastersTechniciansRouteImport.update({
   path: '/masters/technicians',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiFilesIdRoute = ApiFilesIdRouteImport.update({
-  id: '/api/files/$id',
-  path: '/api/files/$id',
+const ApiFilesSplatRoute = ApiFilesSplatRouteImport.update({
+  id: '/api/files/$',
+  path: '/api/files/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IssuanceReportNoRoute = IssuanceReportNoRouteImport.update({
-  id: '/issuance/report/$no',
-  path: '/issuance/report/$no',
-  getParentRoute: () => rootRouteImport,
+  id: '/report/$no',
+  path: '/report/$no',
+  getParentRoute: () => IssuanceRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admins': typeof AdminsRoute
   '/calibration': typeof CalibrationRoute
+  '/issuance': typeof IssuanceRouteWithChildren
   '/reports': typeof ReportsRoute
   '/search': typeof SearchRoute
   '/sets': typeof SetsRoute
@@ -121,14 +122,14 @@ export interface FileRoutesByFullPath {
   '/masters/subcategories': typeof MastersSubcategoriesRoute
   '/masters/technicians': typeof MastersTechniciansRoute
   '/equipment/': typeof EquipmentIndexRoute
-  '/issuance/': typeof IssuanceIndexRoute
-  '/api/files/$id': typeof ApiFilesIdRoute
+  '/api/files/$': typeof ApiFilesSplatRoute
   '/issuance/report/$no': typeof IssuanceReportNoRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admins': typeof AdminsRoute
   '/calibration': typeof CalibrationRoute
+  '/issuance': typeof IssuanceRouteWithChildren
   '/reports': typeof ReportsRoute
   '/search': typeof SearchRoute
   '/sets': typeof SetsRoute
@@ -139,8 +140,7 @@ export interface FileRoutesByTo {
   '/masters/subcategories': typeof MastersSubcategoriesRoute
   '/masters/technicians': typeof MastersTechniciansRoute
   '/equipment': typeof EquipmentIndexRoute
-  '/issuance': typeof IssuanceIndexRoute
-  '/api/files/$id': typeof ApiFilesIdRoute
+  '/api/files/$': typeof ApiFilesSplatRoute
   '/issuance/report/$no': typeof IssuanceReportNoRoute
 }
 export interface FileRoutesById {
@@ -148,6 +148,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admins': typeof AdminsRoute
   '/calibration': typeof CalibrationRoute
+  '/issuance': typeof IssuanceRouteWithChildren
   '/reports': typeof ReportsRoute
   '/search': typeof SearchRoute
   '/sets': typeof SetsRoute
@@ -158,8 +159,7 @@ export interface FileRoutesById {
   '/masters/subcategories': typeof MastersSubcategoriesRoute
   '/masters/technicians': typeof MastersTechniciansRoute
   '/equipment/': typeof EquipmentIndexRoute
-  '/issuance/': typeof IssuanceIndexRoute
-  '/api/files/$id': typeof ApiFilesIdRoute
+  '/api/files/$': typeof ApiFilesSplatRoute
   '/issuance/report/$no': typeof IssuanceReportNoRoute
 }
 export interface FileRouteTypes {
@@ -168,6 +168,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admins'
     | '/calibration'
+    | '/issuance'
     | '/reports'
     | '/search'
     | '/sets'
@@ -178,14 +179,14 @@ export interface FileRouteTypes {
     | '/masters/subcategories'
     | '/masters/technicians'
     | '/equipment/'
-    | '/issuance/'
-    | '/api/files/$id'
+    | '/api/files/$'
     | '/issuance/report/$no'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/admins'
     | '/calibration'
+    | '/issuance'
     | '/reports'
     | '/search'
     | '/sets'
@@ -196,14 +197,14 @@ export interface FileRouteTypes {
     | '/masters/subcategories'
     | '/masters/technicians'
     | '/equipment'
-    | '/issuance'
-    | '/api/files/$id'
+    | '/api/files/$'
     | '/issuance/report/$no'
   id:
     | '__root__'
     | '/'
     | '/admins'
     | '/calibration'
+    | '/issuance'
     | '/reports'
     | '/search'
     | '/sets'
@@ -214,8 +215,7 @@ export interface FileRouteTypes {
     | '/masters/subcategories'
     | '/masters/technicians'
     | '/equipment/'
-    | '/issuance/'
-    | '/api/files/$id'
+    | '/api/files/$'
     | '/issuance/report/$no'
   fileRoutesById: FileRoutesById
 }
@@ -223,6 +223,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminsRoute: typeof AdminsRoute
   CalibrationRoute: typeof CalibrationRoute
+  IssuanceRoute: typeof IssuanceRouteWithChildren
   ReportsRoute: typeof ReportsRoute
   SearchRoute: typeof SearchRoute
   SetsRoute: typeof SetsRoute
@@ -233,9 +234,7 @@ export interface RootRouteChildren {
   MastersSubcategoriesRoute: typeof MastersSubcategoriesRoute
   MastersTechniciansRoute: typeof MastersTechniciansRoute
   EquipmentIndexRoute: typeof EquipmentIndexRoute
-  IssuanceIndexRoute: typeof IssuanceIndexRoute
-  ApiFilesIdRoute: typeof ApiFilesIdRoute
-  IssuanceReportNoRoute: typeof IssuanceReportNoRoute
+  ApiFilesSplatRoute: typeof ApiFilesSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -259,6 +258,13 @@ declare module '@tanstack/react-router' {
       path: '/calibration'
       fullPath: '/calibration'
       preLoaderRoute: typeof CalibrationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/issuance': {
+      id: '/issuance'
+      path: '/issuance'
+      fullPath: '/issuance'
+      preLoaderRoute: typeof IssuanceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/reports': {
@@ -303,13 +309,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EquipmentNewRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/issuance/': {
-      id: '/issuance/'
-      path: '/issuance'
-      fullPath: '/issuance/'
-      preLoaderRoute: typeof IssuanceIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/masters/categories': {
       id: '/masters/categories'
       path: '/masters/categories'
@@ -338,27 +337,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MastersTechniciansRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/files/$id': {
-      id: '/api/files/$id'
-      path: '/api/files/$id'
-      fullPath: '/api/files/$id'
-      preLoaderRoute: typeof ApiFilesIdRouteImport
+    '/api/files/$': {
+      id: '/api/files/$'
+      path: '/api/files/$'
+      fullPath: '/api/files/$'
+      preLoaderRoute: typeof ApiFilesSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/issuance/report/$no': {
       id: '/issuance/report/$no'
-      path: '/issuance/report/$no'
+      path: '/report/$no'
       fullPath: '/issuance/report/$no'
       preLoaderRoute: typeof IssuanceReportNoRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof IssuanceRoute
     }
   }
 }
+
+interface IssuanceRouteChildren {
+  IssuanceReportNoRoute: typeof IssuanceReportNoRoute
+}
+
+const IssuanceRouteChildren: IssuanceRouteChildren = {
+  IssuanceReportNoRoute: IssuanceReportNoRoute,
+}
+
+const IssuanceRouteWithChildren = IssuanceRoute._addFileChildren(
+  IssuanceRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminsRoute: AdminsRoute,
   CalibrationRoute: CalibrationRoute,
+  IssuanceRoute: IssuanceRouteWithChildren,
   ReportsRoute: ReportsRoute,
   SearchRoute: SearchRoute,
   SetsRoute: SetsRoute,
@@ -369,9 +381,7 @@ const rootRouteChildren: RootRouteChildren = {
   MastersSubcategoriesRoute: MastersSubcategoriesRoute,
   MastersTechniciansRoute: MastersTechniciansRoute,
   EquipmentIndexRoute: EquipmentIndexRoute,
-  IssuanceIndexRoute: IssuanceIndexRoute,
-  ApiFilesIdRoute: ApiFilesIdRoute,
-  IssuanceReportNoRoute: IssuanceReportNoRoute,
+  ApiFilesSplatRoute: ApiFilesSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

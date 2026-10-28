@@ -9,7 +9,10 @@ export const Route = createFileRoute("/masters/subcategories")({
       { title: "Master Sub Category · Store Management System" },
       { name: "description", content: "Manage equipment sub categories under each category." },
       { property: "og:title", content: "Master Sub Category · Store Management System" },
-      { property: "og:description", content: "Manage equipment sub categories under each category." },
+      {
+        property: "og:description",
+        content: "Manage equipment sub categories under each category.",
+      },
     ],
   }),
   component: Page,
@@ -26,7 +29,20 @@ function Page() {
       rows={data?.subcategories ?? []}
       cols={[
         { key: "name", label: "Sub Category Name" },
-        { key: "category_id", label: "Category", render: (v, set) => <Combo value={v} onChange={set} options={cats} placeholder="Select category" allowClear={false} />, show: (r) => L.cat(r["category_id"] as string) },
+        {
+          key: "category_id",
+          label: "Category",
+          render: (v, set) => (
+            <Combo
+              value={v}
+              onChange={set}
+              options={cats}
+              placeholder="Select category"
+              allowClear={false}
+            />
+          ),
+          show: (r) => L.cat(r["category_id"] as string),
+        },
       ]}
     />
   );

@@ -4,7 +4,14 @@ import { cn } from "@/lib/utils";
 import { useSignedUrl, type EquipStatus } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { exportExcel } from "@/lib/excel";
 
 const statusMap: Record<string, { label: string; cls: string }> = {
@@ -26,13 +33,26 @@ const statusMap: Record<string, { label: string; cls: string }> = {
 export function StatusPill({ status }: { status: EquipStatus | string }) {
   const s = statusMap[status] ?? statusMap["none"]!;
   return (
-    <span className={cn("inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap", s.cls)}>
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap",
+        s.cls,
+      )}
+    >
       {s.label}
     </span>
   );
 }
 
-export function PageHeader({ title, back, actions }: { title: string; back?: ReactNode; actions?: ReactNode }) {
+export function PageHeader({
+  title,
+  back,
+  actions,
+}: {
+  title: string;
+  back?: ReactNode;
+  actions?: ReactNode;
+}) {
   return (
     <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div className="flex items-center gap-3">
@@ -44,10 +64,21 @@ export function PageHeader({ title, back, actions }: { title: string; back?: Rea
   );
 }
 
-export function Photo({ path, className }: { path?: string | null | undefined; className?: string }) {
+export function Photo({
+  path,
+  className,
+}: {
+  path?: string | null | undefined;
+  className?: string;
+}) {
   const url = useSignedUrl(path);
   return (
-    <div className={cn("flex items-center justify-center overflow-hidden rounded-lg bg-muted", className)}>
+    <div
+      className={cn(
+        "flex items-center justify-center overflow-hidden rounded-lg bg-muted",
+        className,
+      )}
+    >
       {url ? (
         <img src={url} alt="Equipment" className="h-full w-full object-cover" />
       ) : (
@@ -57,7 +88,15 @@ export function Photo({ path, className }: { path?: string | null | undefined; c
   );
 }
 
-export function Field({ label, required, children }: { label: string; required?: boolean; children: ReactNode }) {
+export function Field({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: ReactNode;
+}) {
   return (
     <div className="block space-y-1.5">
       <span className="text-sm font-semibold">
@@ -75,7 +114,14 @@ export function Empty({ children }: { children: ReactNode }) {
 export const selectCls = "h-9 w-full rounded-md border border-input bg-background px-3 text-sm";
 
 /** Searchable dropdown: type to filter, click to choose. */
-export function Combo({ value, onChange, options, placeholder = "Select…", allowClear = true, disabled }: {
+export function Combo({
+  value,
+  onChange,
+  options,
+  placeholder = "Select…",
+  allowClear = true,
+  disabled,
+}: {
   value: string;
   onChange: (v: string) => void;
   options: { value: string; label: string }[];
@@ -88,8 +134,16 @@ export function Combo({ value, onChange, options, placeholder = "Select…", all
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="outline" role="combobox" disabled={disabled} className="h-9 w-full justify-between font-normal">
-          <span className={cn("truncate", !current && "text-muted-foreground")}>{current?.label ?? placeholder}</span>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          disabled={disabled}
+          className="h-9 w-full justify-between font-normal"
+        >
+          <span className={cn("truncate", !current && "text-muted-foreground")}>
+            {current?.label ?? placeholder}
+          </span>
           <ChevronsUpDown className="h-4 w-4 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -100,11 +154,29 @@ export function Combo({ value, onChange, options, placeholder = "Select…", all
             <CommandEmpty>No match.</CommandEmpty>
             <CommandGroup>
               {allowClear && value && (
-                <CommandItem value="__clear" onSelect={() => { onChange(""); setOpen(false); }} className="text-muted-foreground">Clear selection</CommandItem>
+                <CommandItem
+                  value="__clear"
+                  onSelect={() => {
+                    onChange("");
+                    setOpen(false);
+                  }}
+                  className="text-muted-foreground"
+                >
+                  Clear selection
+                </CommandItem>
               )}
               {options.map((o) => (
-                <CommandItem key={o.value} value={`${o.label} ${o.value}`} onSelect={() => { onChange(o.value); setOpen(false); }}>
-                  <Check className={cn("h-4 w-4", o.value === value ? "opacity-100" : "opacity-0")} />
+                <CommandItem
+                  key={o.value}
+                  value={`${o.label} ${o.value}`}
+                  onSelect={() => {
+                    onChange(o.value);
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={cn("h-4 w-4", o.value === value ? "opacity-100" : "opacity-0")}
+                  />
                   {o.label}
                 </CommandItem>
               ))}
@@ -116,7 +188,13 @@ export function Combo({ value, onChange, options, placeholder = "Select…", all
   );
 }
 
-export function ExportButton({ name, rows }: { name: string; rows: () => Record<string, string | number | null | undefined>[] }) {
+export function ExportButton({
+  name,
+  rows,
+}: {
+  name: string;
+  rows: () => Record<string, string | number | null | undefined>[];
+}) {
   return (
     <Button type="button" variant="outline" onClick={() => exportExcel(name, rows())}>
       <Download className="h-4 w-4" /> Export to Excel

@@ -1,5 +1,13 @@
-// Password hashing for user accounts and random session tokens.
-import { createHash, randomBytes, scrypt, timingSafeEqual, type ScryptOptions } from "node:crypto";
+// Password hashing for user accounts and reversible encryption for stored credentials.
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+  scrypt,
+  timingSafeEqual,
+  type ScryptOptions,
+} from "node:crypto";
 
 const SCRYPT = { N: 16384, r: 8, p: 1, keyLength: 64 };
 
@@ -42,4 +50,33 @@ export function newSessionToken(): string {
 
 export function sha256Hex(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function encryptionKey(): Buffer {
+  const raw = process.env["ENCRYPTION_KEY"];
+  if (!raw) throw new Error("Missing ENCRYPTION_KEY environment variable.");
+  const key = Buffer.from(raw, "base64");
+  if (key.length !== 32) throw new Error("ENCRYPTION_KEY must be 32 bytes, base64-encoded.");
+  return key;
+}
+
+/** AES-256-GCM. Output: `v1:iv:tag:ciphertext` (each part base64). */
+export function encryptSecret(plain: string): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
+  const data = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  const parts = [iv, cipher.getAuthTag(), data].map((part) => part.toString("base64"));
+  return ["v1", ...parts].join(":");
+}
+
+export function decryptSecret(stored: string): string {
+  const [version, ivB64, tagB64, dataB64] = stored.split(":");
+  if (version !== "v1" || !ivB64 || !tagB64 || dataB64 === undefined)
+    throw new Error("Unrecognised encrypted value.");
+  const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), Buffer.from(ivB64, "base64"));
+  decipher.setAuthTag(Buffer.from(tagB64, "base64"));
+  return Buffer.concat([
+    decipher.update(Buffer.from(dataB64, "base64")),
+    decipher.final(),
+  ]).toString("utf8");
 }
